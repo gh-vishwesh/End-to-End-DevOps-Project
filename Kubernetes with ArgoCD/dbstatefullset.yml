@@ -4,14 +4,13 @@ metadata:
   name: db-pod
 spec:
   serviceName: mydb
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: db-pod
   podManagementPolicy: OrderedReady
   updateStrategy:
     type: RollingUpdate
-    rollingUpdate:
   template:
     metadata:
       labels:
@@ -22,7 +21,7 @@ spec:
         runAsUser: 1001
       containers:
       - name: db-pod
-        image: bitnami/mysql:8.0.36
+        image: bitnamilegacy/mysql:8.0.36
         ports:
         - containerPort: 3306
         env:

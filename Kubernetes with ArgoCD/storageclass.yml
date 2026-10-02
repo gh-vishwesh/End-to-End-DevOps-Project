@@ -2,15 +2,13 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: efs-sc
-  annotations:
-    argocd.argoproj.io/sync-options: Skip
 provisioner: efs.csi.aws.com
 parameters:
   provisioningMode: efs-ap
-  fileSystemId: fs-0de7e0d381db09e72
+  fileSystemId: fs-06cf01863fbf69f96
   directoryPerms: "0777"
   gidRangeStart: "1000"
   gidRangeEnd: "2000"
   basePath: "/dynamic_provisioning"
-  reclaimPolicy: Retain
-  volumeBindingMode: Immediate
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
