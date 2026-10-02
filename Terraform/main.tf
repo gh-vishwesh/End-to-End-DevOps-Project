@@ -58,7 +58,7 @@ module "efs" {
       protocol = "TCP"
       cidr_blocks = []
       description = "Allow NFS access from EKS nodes"
-      security_group = [module.eks.security_group]
+      security_group = [module.eks.security_group, module.eks.cluster_security_group]
     }
   }
   depends_on = [module.eks]

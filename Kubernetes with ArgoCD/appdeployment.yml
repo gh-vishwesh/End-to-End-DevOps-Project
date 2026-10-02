@@ -26,6 +26,19 @@ spec:
               memory: "128Mi"
           ports:
             - containerPort: 8000
+          # Django's dev server keeps the process alive even if startup fails (e.g. DB not up yet),
+          # so check the port: liveness restarts a dead server, readiness keeps it out of the ALB.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
 
           env:
             - name: DB_HOST

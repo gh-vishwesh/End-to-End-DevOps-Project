@@ -1,0 +1,5 @@
+# Namespace for the kube-state-metrics / node-exporter services in svc_monitoring.yml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
