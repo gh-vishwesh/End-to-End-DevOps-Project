@@ -1,9 +1,9 @@
 variable "instance_ami" {
-  default = "ami-02c7683e4ca3ebf58"
+  default = "ami-02bf0feb29433c907"
 }
 
 variable "instance_type" {
-    default = "t2.micro"
+    default = "t3.micro"
 }
 
 variable "ec2_name" {

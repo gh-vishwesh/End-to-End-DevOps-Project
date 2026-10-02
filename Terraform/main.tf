@@ -6,7 +6,7 @@ module "ec2" {
   source = "./ec2"
   vpc_id = module.vpc.vpc_id
   subnet_id = module.vpc.subnet_ids
-  key = "singapure-key"
+  key = "vishwesh-EC2"
   ec2_ingress_rule = {
     "all" = {
       port = 0

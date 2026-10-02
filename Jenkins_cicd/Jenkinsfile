@@ -1,103 +1,101 @@
 pipeline {
     agent any
     environment {
-        AWS_REGION = 'ap-southeast-1'
-        AWS_ACCOUNT_ID = '590183945701'
+        AWS_REGION = 'ap-south-1'
+        AWS_ACCOUNT_ID = '013453151357'
+        IMAGE_NAME = 'python_web_application'
         IMAGE_TAG = "build-${BUILD_NUMBER}"
-        ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/python_web_application"
+        ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_NAME}"
         FULL_IMAGE = "${ECR_REPO}:${IMAGE_TAG}"
+
+        // App code and Kubernetes manifests live in the same repo
+        GIT_REPO = 'github.com/gh-vishwesh/End-to-End-DevOps-Project.git'
+        GIT_BRANCH = 'main'
+        REPO_DIR = 'End-to-End-DevOps-Project'
+        APP_DIR = 'Jenkins_cicd'
+        MANIFEST = 'Kubernetes with ArgoCD/appdeployment.yml'
     }
     stages {
 
-        stage('Clone Application Repo') {
+        stage('Clone Repo') {
             steps {
                 withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'github')]) {
-                    script {
-                        if (fileExists('Jenkins_cicd_webhook')) {
-                            dir('Jenkins_cicd_webhook') {
-                                sh '''
-                                    git checkout master || git checkout -b master origin/master
-                                    git pull origin master
-                                '''
-                            }
-                        } else {
-                            sh 'git clone https://$github@github.com/varunsimha-MP/Jenkins_cicd_webhook.git'
-                        }
+                    // Fresh clone every build so stale or dirty checkouts never break the pipeline
+                    dir(REPO_DIR) { deleteDir() }
+                    sh 'git clone --branch "$GIT_BRANCH" "https://$github@$GIT_REPO" "$REPO_DIR"'
+                }
+                script {
+                    // Jenkins' own manifest commit triggers the webhook again; skip that build to avoid an endless loop
+                    def lastMsg = sh(script: "git -C '${REPO_DIR}' log -1 --pretty=%B", returnStdout: true).trim()
+                    env.SKIP_BUILD = lastMsg.contains('[skip ci]') ? 'true' : 'false'
+                    if (env.SKIP_BUILD == 'true') {
+                        echo 'Latest commit was made by Jenkins ([skip ci]); skipping build.'
+                        currentBuild.result = 'NOT_BUILT'
                     }
                 }
             }
         }
 
-        stage('Clean old Docker image') {
-            steps {
-                sh 'docker rmi -f python_web_application:latest || true'
-            }
-        }
-
         stage('Build Docker image') {
+            when { expression { env.SKIP_BUILD != 'true' } }
             steps {
-                dir('Jenkins_cicd_webhook') {
-                    sh 'docker build -t python_web_application:${IMAGE_TAG} .'
+                dir("${REPO_DIR}/${APP_DIR}") {
+                    sh 'docker build -t "$IMAGE_NAME:$IMAGE_TAG" .'
                 }
             }
         }
 
         stage('Push Docker Image To ECR') {
+            when { expression { env.SKIP_BUILD != 'true' } }
             steps {
                 sh '''
-                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO}
-                    docker tag python_web_application:${IMAGE_TAG} ${FULL_IMAGE}
-                    docker push ${FULL_IMAGE}
+                    aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REPO"
+                    docker tag "$IMAGE_NAME:$IMAGE_TAG" "$FULL_IMAGE"
+                    docker push "$FULL_IMAGE"
                 '''
             }
         }
 
-
-        stage('Clone ArgoCD Repo') {
-            steps {
-                withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'github')]) {
-                    script {
-                        if (fileExists('k8s_test')){
-                            dir('k8s_test') {
-                                sh '''
-                                    git checkout master || git checkout -b master origin/master
-                                    git pull origin master
-                                '''
-                                }
-                            }   
-                        else {
-                            sh 'git clone https://$github@github.com/varunsimha-MP/k8s_test.git'
-                        }
-                    }
-                }
-            }
-        }
-
         stage('Update ArgoCD YAML') {
+            when { expression { env.SKIP_BUILD != 'true' } }
             steps {
-                dir('k8s_test/Kubernetes with ArgoCD') {
+                dir(REPO_DIR) {
                     sh '''
-                        sed -i 's|image:.*|image: '"${FULL_IMAGE}"'|' appdeployment.yml
+                        sed -i "s|^\\([[:space:]]*image:\\).*|\\1 $FULL_IMAGE|" "$MANIFEST"
+                        grep -n "image:" "$MANIFEST"
                     '''
                 }
             }
         }
 
-        stage('Commit and Push Changes to Kubernetes with ArgoCD Repo') {
+        stage('Commit and Push Manifest') {
+            when { expression { env.SKIP_BUILD != 'true' } }
             steps {
                 withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'github')]) {
-                    dir('k8s_test') {
+                    dir(REPO_DIR) {
                         sh '''
-                            git config --global user.email "jenkins@ci.com"
-                            git config --global user.name "Jenkins CI"
+                            git config user.email "jenkins@ci.com"
+                            git config user.name "Jenkins CI"
 
-                            git add "Kubernetes with ArgoCD/appdeployment.yml"
-                            git commit -m "Updated image to ${FULL_IMAGE}" || echo "No changes to commit"
-                            git push https://$github@github.com/varunsimha-MP/k8s_test.git HEAD:master
+                            git add "$MANIFEST"
+                            if git diff --cached --quiet; then
+                                echo "No changes to commit"
+                            else
+                                git commit -m "Updated image to $FULL_IMAGE [skip ci]"
+                                # Rebase in case someone pushed while this build was running
+                                git pull --rebase "https://$github@$GIT_REPO" "$GIT_BRANCH"
+                                git push "https://$github@$GIT_REPO" "HEAD:$GIT_BRANCH"
+                            fi
                         '''
                     }
                 }
             }
+        }
+    }
+    post {
+        always {
+            // Free disk on the Jenkins server; images are already in ECR
+            sh 'docker rmi -f "$IMAGE_NAME:$IMAGE_TAG" "$FULL_IMAGE" || true'
         }
     }
 }

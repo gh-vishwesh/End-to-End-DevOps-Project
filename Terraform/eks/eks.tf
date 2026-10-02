@@ -1,6 +1,6 @@
 resource "aws_eks_cluster" "main_eks" {
     name = var.eks_name
-    role_arn = data.aws_iam_role.cluster_role.arn
+    role_arn = aws_iam_role.cluster_role.arn
     vpc_config {
       subnet_ids = var.sub_ids
       endpoint_private_access = true
@@ -16,7 +16,7 @@ resource "aws_eks_node_group" "main_node_group" {
   node_role_arn = aws_iam_role.node_role.arn
   subnet_ids = var.sub_ids
   remote_access {
-    ec2_ssh_key = "singapure-key"
+    ec2_ssh_key = "vishwesh-EC2"
     source_security_group_ids = [aws_security_group.eks_SG.id]
   }
 
@@ -25,8 +25,8 @@ resource "aws_eks_node_group" "main_node_group" {
     max_size = 4
     min_size = 1
   }
-  ami_type = "AL2_x86_64"
-  instance_types = ["t3.medium"]
+  ami_type = "AL2023_x86_64_STANDARD"
+  instance_types = ["c7i-flex.large"]
   disk_size = 30
   capacity_type = "ON_DEMAND"
 
@@ -102,7 +102,6 @@ resource "aws_eks_addon" "eks_vpc_cni" {
 resource "aws_eks_addon" "eks_coredns" {
   cluster_name = aws_eks_cluster.main_eks.name
   addon_name   = "coredns"
-  addon_version = "v1.11.4-eksbuild.2"
   resolve_conflicts_on_update = "PRESERVE"
   depends_on   = [
     aws_eks_cluster.main_eks,
