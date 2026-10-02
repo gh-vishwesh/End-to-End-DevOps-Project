@@ -1,0 +1,60 @@
+# Values for prometheus-community/kube-prometheus-stack on EKS.
+# Install/upgrade:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm upgrade -i monitoring prometheus-community/kube-prometheus-stack -n monitoring \
+#     -f kube-prometheus-stack-values.yaml --set grafana.adminPassword='<password>'
+
+# EKS runs these control-plane components itself and doesn't expose their metrics;
+# leaving them on only produces permanent "target down" alerts.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    # Pick up ServiceMonitors/PodMonitors/rules from any namespace, not just this release's
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+grafana:
+  # Admin password is passed with --set grafana.adminPassword=... (kept out of git)
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      alb.ingress.kubernetes.io/load-balancer-name: grafana-alb
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+      alb.ingress.kubernetes.io/healthcheck-path: /api/health
+    hosts: []
+    path: /
+    pathType: Prefix
