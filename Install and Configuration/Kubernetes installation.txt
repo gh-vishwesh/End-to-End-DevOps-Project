@@ -16,7 +16,7 @@ To switch to another cluster:
 -> kubectl config use-context docker-desktop
 
 For AWS,
-aws eks update-kubeconfig --region ap-southeast-1 --name testing_k8s
+aws eks update-kubeconfig --region ap-south-1 --name testing_k8s
 
 To view which config your using:
 -> kubectl config get-contexts

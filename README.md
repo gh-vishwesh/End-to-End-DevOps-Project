@@ -122,12 +122,12 @@ cd Building-an-End-to-End-DevOps-Project-on-AWS
 ### 2. Configure AWS Credentials
 ```bash
 aws configure
-# Enter your AWS Access Key ID, Secret Access Key, and default region (ap-southeast-1)
+# Enter your AWS Access Key ID, Secret Access Key, and default region (ap-south-1)
 ```
 
 ### 3. Create S3 Backend Bucket
 ```bash
-aws s3 mb s3://terraform-devops-backend-file --region ap-southeast-1
+aws s3 mb s3://terraform-devops-backendfile --region ap-south-1
 ```
 
 ### 4. Deploy Infrastructure
@@ -151,7 +151,7 @@ Follow the detailed setup guide below for complete configuration.
 terraform {
     backend "s3" {
         bucket = "your-terraform-backend-bucket"
-        region = "ap-southeast-1"
+        region = "ap-south-1"
         key = "terraform.tfstate"
         encrypt = true
         use_lockfile = true
@@ -178,7 +178,7 @@ This will create:
 
 #### Step 3: Configure kubectl
 ```bash
-aws eks update-kubeconfig --region ap-southeast-1 --name your-eks-cluster-name
+aws eks update-kubeconfig --region ap-south-1 --name your-eks-cluster-name
 kubectl get nodes
 ```
 
@@ -289,7 +289,7 @@ kubectl apply -f "Install and Configuration/Grafana installation.txt"
 
 ### Environment Variables:
 ```bash
-AWS_REGION=ap-southeast-1
+AWS_REGION=ap-south-1
 AWS_ACCOUNT_ID=your-account-id
 GITHUB_TOKEN=your-github-token
 ```
@@ -301,13 +301,13 @@ GITHUB_TOKEN=your-github-token
 #### 1. Terraform Backend Issues
 ```bash
 # If S3 backend doesn't exist
-aws s3 mb s3://terraform-devops-backend-file --region ap-southeast-1
+aws s3 mb s3://terraform-devops-backendfile --region ap-south-1
 ```
 
 #### 2. EKS Connection Issues
 ```bash
 # Update kubeconfig
-aws eks update-kubeconfig --region ap-southeast-1 --name your-cluster-name
+aws eks update-kubeconfig --region ap-south-1 --name your-cluster-name
 ```
 
 #### 3. Jenkins Pipeline Failures
@@ -335,10 +335,10 @@ kubectl get events --sort-by='.lastTimestamp'
 ### Useful Commands:
 ```bash
 # Check EKS cluster status
-aws eks describe-cluster --name your-cluster-name --region ap-southeast-1
+aws eks describe-cluster --name your-cluster-name --region ap-south-1
 
 # List ECR repositories
-aws ecr describe-repositories --region ap-southeast-1
+aws ecr describe-repositories --region ap-south-1
 
 # Check EFS mount targets
 aws efs describe-mount-targets --file-system-id your-efs-id

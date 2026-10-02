@@ -1,5 +1,5 @@
 variable "region" {
-  default = "ap-southeast-1"
+  default = "ap-south-1"
 }
 variable "eks_name" {
     default = "testing_k8s"
