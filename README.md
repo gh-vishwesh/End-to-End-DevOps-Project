@@ -1,4 +1,4 @@
-Building an End-to-End DevOps Project on AWS using Terraform, Kubernetes, Jenkins (CI/CD), GitOps, ArgoCD with Full Prometheus Monitoring & Grafana Visualization
+# Building an End-to-End DevOps Project on AWS using Terraform, Kubernetes, Jenkins (CI/CD), GitOps, ArgoCD with Full Prometheus Monitoring & Grafana Visualization
 
 In this project, I build a full end-to-end DevOps project on AWS with GitOps workflow. The entire infrastructure was provisioned using Terraform, with state and lock management in AWS S3. The application code is managed on GitHub, and a webhook triggers Jenkins to clone the repo, build a Docker image, push it to Amazon ECR, and update a GitOps-managed repo. ArgoCD watches this repo and automatically deploys to Amazon EKS, using Kubernetes Deployments for app pods and StatefulSets for database pods, backed by Amazon EFS for persistent storage. External access is routed via an Ingress Controller using AWS ALB, secured by AWS Certificate Manager (ACM) and Route 53 for DNS. The entire stack is monitored by Prometheus and visualized through Grafana, with RBAC controlling access and alerts sent via email for any failures in Jenkins pipelines or unhealthy services. 
 
@@ -9,366 +9,100 @@ The tech stack includes Terraform, GitHub, Jenkins, Docker, ArgoCD, Helm, Kubern
 
 
 
-## 📋 Table of Contents
+## 📘 Full step-by-step guide
 
-- [Project Overview](#project-overview)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Detailed Setup Guide](#detailed-setup-guide)
-- [Monitoring & Alerts](#monitoring--alerts)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
-- [License](#license)
+**[docs/RUNBOOK.md](docs/RUNBOOK.md)** (also as **[PDF](docs/DevOps-Project-Runbook.pdf)**) walks through every phase with exact commands, expected output and checks: prerequisites, Terraform, EKS add-ons, Jenkins, security scanning, ArgoCD, the CI/CD loop, monitoring (in-cluster and EC2), HTTPS, troubleshooting and teardown.
 
-## 🎯 Project Overview
-
-This project implements a complete GitOps workflow on AWS with automated infrastructure provisioning, continuous integration/deployment, and comprehensive monitoring. The application is a Python Django web application with MySQL database, deployed on Amazon EKS with persistent storage using EFS.
-
-### Key Features:
-- **Infrastructure as Code**: Complete AWS infrastructure managed with Terraform
-- **CI/CD Pipeline**: Jenkins automated build and deployment pipeline
-- **GitOps Workflow**: ArgoCD for Kubernetes deployment automation
-- **Container Orchestration**: Kubernetes with EKS for scalable deployments
-- **Persistent Storage**: EFS-backed storage for database and application data
-- **Load Balancing**: AWS ALB with SSL termination via ACM
-- **Monitoring**: Prometheus metrics collection with Grafana visualization
-- **Security**: RBAC, secrets management, and network security groups
-
-## 🏗️ Architecture
+## 🔁 Pipeline
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   GitHub Repo   │    │   Jenkins CI    │    │   ArgoCD CD     │
-│                 │───▶│                 │───▶│                 │
-│  Application    │    │  Build & Push   │    │  Deploy to EKS  │
-│  Code           │    │  to ECR         │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                                        │
-                                                        ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Prometheus    │    │   Grafana       │    │   EKS Cluster   │
-│   Monitoring    │◀───│   Dashboard     │    │                 │
-│                 │    │                 │    │  App + DB Pods  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                                        │
-                                                        ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Route 53      │    │   ACM           │    │   EFS Storage   │
-│   DNS           │───▶│   SSL Cert      │───▶│   Persistent    │
-│                 │    │                 │    │   Volumes       │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+ git push ──▶ GitHub ──webhook──▶ Jenkins (EC2)
+                                    │ 1. clone main (skip if "[skip ci]")
+                                    │ 2. Django unit tests
+                                    │ 3. Trivy: secrets (blocking) + IaC/deps report
+                                    │ 4. docker build (non-root, gunicorn)
+                                    │ 5. Trivy image scan (blocks on fixable CRITICAL)
+                                    │ 6. push to ECR  ─────────────────────────────┐
+                                    │ 7. bump image tag in appdeployment.yml        │
+                                    ▼ 8. commit "[skip ci]" + push                  │
+                                 GitHub                                             │
+                                    │ ArgoCD watches "Kubernetes with ArgoCD/"     │
+                                    ▼                                               ▼
+   Internet ──▶ ALB (AWS LB Controller) ──▶ EKS: app-pod x2 ──▶ mydb (MySQL StatefulSet on EFS)
+                                              ▲
+             Prometheus / Grafana / Alertmanager (in-cluster + EC2) ──▶ email alerts
 ```
 
-## 🛠️ Tech Stack
+## 🗂️ Repository layout
 
-### Infrastructure & DevOps
-- **Terraform** - Infrastructure as Code
-- **AWS EKS** - Kubernetes cluster
-- **AWS ECR** - Container registry
-- **AWS EFS** - Persistent storage
-- **AWS ALB** - Load balancer
-- **AWS ACM** - SSL certificates
-- **Route 53** - DNS management
+| Path | What it contains |
+|---|---|
+| [`Terraform/`](Terraform) | VPC, EC2 (Jenkins, monitoring), EKS + Pod Identity roles, EFS, ECR, optional Route 53/ACM. S3 backend with native locking |
+| [`Jenkins_cicd/`](Jenkins_cicd) | Django CRUD app, `Dockerfile` (multi-stage, non-root), `requirements.txt`, unit tests, **`Jenkinsfile`** |
+| [`Kubernetes with ArgoCD/`](Kubernetes%20with%20ArgoCD) | Manifests ArgoCD syncs into `k8s-project`: Deployment, StatefulSet, Services, Ingress (ALB), ConfigMap, Secret, StorageClass (EFS), RBAC |
+| [`Install and Configuration/`](Install%20and%20Configuration) | Jenkins server installer, ArgoCD Application, EFS/LB controller Helm commands, Prometheus/Alertmanager/Grafana guides, alert rules, kube-prometheus-stack values |
+| [`Security/`](Security) | Trivy config + scan script, NetworkPolicies, kube-bench (CIS EKS) job, security guide |
+| [`docs/`](docs) | Runbook (Markdown + PDF) and the script that builds the PDF |
 
-### CI/CD & GitOps
-- **Jenkins** - CI/CD pipeline
-- **ArgoCD** - GitOps deployment
-- **Docker** - Containerization
-- **GitHub** - Source code & GitOps repo
+## 🛠️ Tech stack
 
-### Monitoring & Observability
-- **Prometheus** - Metrics collection
-- **Grafana** - Visualization & dashboards
-- **AlertManager** - Alert management
+| Area | Tools |
+|---|---|
+| Infrastructure as Code | Terraform (S3 state + lockfile) |
+| Cloud | AWS VPC, EC2, EKS, ECR, EFS, ALB, IAM (Pod Identity), Route 53, ACM |
+| CI | Jenkins, Docker, GitHub webhooks |
+| CD / GitOps | ArgoCD (auto-sync, prune, self-heal) |
+| DevSecOps | Trivy (secrets, IaC, dependencies, image), ECR scan-on-push, kube-bench, NetworkPolicies, Pod Security Standards |
+| Monitoring | Prometheus, Alertmanager (email), Grafana, node_exporter, Pushgateway, kube-prometheus-stack |
+| App | Python 3.12, Django 5.2 LTS, gunicorn, MySQL 8 |
 
-### Application
-- **Python Django** - Web application
-- **MySQL** - Database
-- **Kubernetes** - Container orchestration
+## 🚀 Quick start (summary of the runbook)
 
-## 📋 Prerequisites
-
-Before starting, ensure you have the following:
-
-### Required Software
-- [Terraform](https://www.terraform.io/downloads.html) (v1.0+)
-- [AWS CLI](https://aws.amazon.com/cli/) (v2.0+)
-- [kubectl](https://kubernetes.io/docs/tasks/tools/) (v1.24+)
-- [Docker](https://www.docker.com/products/docker-desktop/) (v20.0+)
-- [Git](https://git-scm.com/downloads) (v2.30+)
-
-### AWS Account Requirements
-- AWS account with appropriate permissions
-- S3 bucket for Terraform backend (create manually first)
-- Domain name for Route 53 (optional but recommended)
-
-### GitHub Requirements
-- GitHub account
-- Personal access token with repo permissions
-- Two repositories:
-  - Main application repository
-  - GitOps repository for Kubernetes manifests
-
-## 🚀 Quick Start
-
-### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/Building-an-End-to-End-DevOps-Project-on-AWS.git
-cd Building-an-End-to-End-DevOps-Project-on-AWS
-```
+# 0. prerequisites: aws configure (ap-south-1), terraform, kubectl, helm
+git clone https://github.com/gh-vishwesh/End-to-End-DevOps-Project.git && cd End-to-End-DevOps-Project
 
-### 2. Configure AWS Credentials
-```bash
-aws configure
-# Enter your AWS Access Key ID, Secret Access Key, and default region (ap-south-1)
-```
+# 1. infrastructure
+cd Terraform && cp example.tfvars terraform.tfvars   # set admin_cidr to your IP
+terraform init && terraform apply && cd ..
 
-### 3. Create S3 Backend Bucket
-```bash
-aws s3 mb s3://terraform-devops-backendfile --region ap-south-1
-```
+# 2. cluster add-ons
+aws eks update-kubeconfig --region ap-south-1 --name testing_k8s
+#    EFS CSI driver + AWS Load Balancer Controller: see "Install and Configuration/EFS and LB installation.txt"
+#    put `terraform output -raw efs_id` into "Kubernetes with ArgoCD/storageclass.yml", commit, push
 
-### 4. Deploy Infrastructure
-```bash
-cd Terraform
-terraform init
-terraform plan
-terraform apply
-```
+# 3. Jenkins: run "Install and Configuration/install-jenkins-server.sh" on the Jenkins EC2,
+#    add credential GITHUB_TOKEN, create a pipeline job from SCM (Script Path: Jenkins_cicd/Jenkinsfile),
+#    add the GitHub webhook, run the first build
 
-### 5. Configure Jenkins & ArgoCD
-Follow the detailed setup guide below for complete configuration.
-
-## 📖 Detailed Setup Guide
-
-### Phase 1: Infrastructure Setup
-
-#### Step 1: Configure Terraform Backend
-1. Update the S3 bucket name in `Terraform/provider.tf`:
-```hcl
-terraform {
-    backend "s3" {
-        bucket = "your-terraform-backend-bucket"
-        region = "ap-south-1"
-        key = "terraform.tfstate"
-        encrypt = true
-        use_lockfile = true
-    }
-}
-```
-
-#### Step 2: Deploy AWS Infrastructure
-```bash
-cd Terraform
-terraform init
-terraform plan
-terraform apply -auto-approve
-```
-
-This will create:
-- VPC with public/private subnets
-- EKS cluster
-- ECR repository
-- EFS file system
-- EC2 instance for Jenkins
-- Route 53 hosted zone
-- ACM certificate
-
-#### Step 3: Configure kubectl
-```bash
-aws eks update-kubeconfig --region ap-south-1 --name your-eks-cluster-name
-kubectl get nodes
-```
-
-### Phase 2: Jenkins Setup
-
-#### Step 1: Connect to Jenkins Server
-```bash
-# Get the public IP of your Jenkins EC2 instance
-aws ec2 describe-instances --filters "Name=tag:Name,Values=Jenkins-Server" --query 'Reservations[].Instances[].PublicIpAddress' --output text
-
-# SSH to the server
-ssh -i your-key.pem ubuntu@<jenkins-public-ip>
-```
-
-#### Step 2: Install Jenkins
-Follow the installation guide in `Install and Configuration/Jenkins, Docker and AWS CLi installation.txt`
-
-#### Step 3: Configure Jenkins Credentials
-1. Access Jenkins UI (http://jenkins-public-ip:8080)
-2. Add GitHub token as credential:
-   - Go to Manage Jenkins > Credentials > System > Global credentials
-   - Add new credential:
-     - Kind: Secret text
-     - ID: GITHUB_TOKEN
-     - Secret: Your GitHub personal access token
-
-#### Step 4: Create Jenkins Pipeline
-1. Create new Pipeline job
-2. Configure webhook trigger from GitHub
-3. Use the Jenkinsfile from `Jenkins_cicd/Jenkinsfile`
-
-### Phase 3: ArgoCD Setup
-
-#### Step 1: Install ArgoCD
-```bash
+# 4. ArgoCD
 kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply -f "Install and Configuration/argocd-application.yaml"
+kubectl get ingress -n k8s-project          # open the ALB address
+
+# 5. monitoring
+helm upgrade -i monitoring prometheus-community/kube-prometheus-stack -n monitoring --create-namespace \
+  -f "Install and Configuration/kube-prometheus-stack-values.yaml" --set grafana.adminPassword='<password>'
+
+# 6. security scans (local)
+./Security/scripts/run-security-scans.sh
 ```
 
-#### Step 2: Access ArgoCD UI
-```bash
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-# Access https://localhost:8080
-# Default username: admin
-# Get password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
-```
+**Teardown:** delete the ArgoCD app and Ingresses first (so the ALBs are removed), uninstall the Helm releases, then run `terraform destroy`. See runbook Phase 11.
 
-#### Step 3: Create ArgoCD Application
-1. Create application pointing to your GitOps repository
-2. Set path to `Kubernetes with ArgoCD/`
-3. Enable auto-sync
+## 🔐 Security highlights
 
-### Phase 4: Application Deployment
-
-#### Step 1: Update Configuration
-1. Update image references in Kubernetes manifests
-2. Configure database credentials in secrets
-3. Update domain name in ingress configuration
-
-#### Step 2: Deploy Application
-```bash
-kubectl apply -f "Kubernetes with ArgoCD/"
-```
-
-### Phase 5: Monitoring Setup
-
-#### Step 1: Install Prometheus
-```bash
-kubectl create namespace monitoring
-kubectl apply -f "Install and Configuration/prometheus yml file.txt"
-```
-
-#### Step 2: Install Grafana
-```bash
-kubectl apply -f "Install and Configuration/Grafana installation.txt"
-```
-
-#### Step 3: Configure Dashboards
-1. Access Grafana (port-forward or ingress)
-2. Import Prometheus as data source
-3. Import monitoring dashboards
-
-## 📊 Monitoring & Alerts
-
-### Prometheus Configuration
-- Metrics collection from Kubernetes pods
-- Custom metrics for application health
-- Alert rules for critical failures
-
-### Grafana Dashboards
-- Kubernetes cluster overview
-- Application performance metrics
-- Database monitoring
-- Jenkins pipeline status
-
-### Alert Configuration
-- Email alerts for pipeline failures
-- Service health monitoring
-- Resource utilization alerts
-
-## 🔧 Configuration Files
-
-### Key Configuration Files:
-- `Terraform/` - Infrastructure as Code
-- `Jenkins_cicd/Jenkinsfile` - CI/CD pipeline
-- `Kubernetes with ArgoCD/` - Kubernetes manifests
-- `Install and Configuration/` - Setup scripts and configs
-
-### Environment Variables:
-```bash
-AWS_REGION=ap-south-1
-AWS_ACCOUNT_ID=your-account-id
-GITHUB_TOKEN=your-github-token
-```
+- No "all traffic from 0.0.0.0/0" rules. SSH and the monitoring UIs only from `admin_cidr`.
+- No static AWS keys on Jenkins (instance profile). Controllers use EKS Pod Identity; least-privilege node role.
+- Trivy gates in CI. ECR scan-on-push. Non-root, read-only-rootfs containers.
+- Encrypted EBS/EFS/ECR/S3 state, IMDSv2 required.
+- Known demo shortcut: `secret.yml` is base64 in Git. Upgrade path with Sealed Secrets is in [`Security/README.md`](Security/README.md).
 
 ## 🐛 Troubleshooting
 
-### Common Issues:
-
-#### 1. Terraform Backend Issues
-```bash
-# If S3 backend doesn't exist
-aws s3 mb s3://terraform-devops-backendfile --region ap-south-1
-```
-
-#### 2. EKS Connection Issues
-```bash
-# Update kubeconfig
-aws eks update-kubeconfig --region ap-south-1 --name your-cluster-name
-```
-
-#### 3. Jenkins Pipeline Failures
-- Check GitHub token permissions
-- Verify ECR repository access
-- Ensure Docker is running on Jenkins server
-
-#### 4. ArgoCD Sync Issues
-- Verify GitOps repository access
-- Check Kubernetes manifest syntax
-- Review ArgoCD application logs
-
-#### 5. Application Deployment Issues
-```bash
-# Check pod status
-kubectl get pods -n default
-
-# Check pod logs
-kubectl logs <pod-name>
-
-# Check events
-kubectl get events --sort-by='.lastTimestamp'
-```
-
-### Useful Commands:
-```bash
-# Check EKS cluster status
-aws eks describe-cluster --name your-cluster-name --region ap-south-1
-
-# List ECR repositories
-aws ecr describe-repositories --region ap-south-1
-
-# Check EFS mount targets
-aws efs describe-mount-targets --file-system-id your-efs-id
-
-# Monitor Jenkins logs
-sudo journalctl -u jenkins -f
-
-# Check ArgoCD application status
-kubectl get applications -n argocd
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📞 Support
-
-For support and questions:
-- Create an issue in the GitHub repository
-- Check the troubleshooting section above
-- Review the configuration files for reference
+See the [runbook troubleshooting section](docs/RUNBOOK.md#12-troubleshooting) for Terraform, Jenkins, Kubernetes/ArgoCD and monitoring issues.
 
 ---
 
-**Note**: This project is for educational and demonstration purposes. Please review and modify configurations according to your specific requirements and security policies before using in production environments.
+**Note**: This project is for learning and demonstration. Review and adapt the configuration (secrets handling, instance sizes, public endpoints) before using it in production. The EKS control plane, ALBs and EFS are billed hourly, so tear down when you are done.

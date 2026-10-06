@@ -1,14 +1,40 @@
-#EFS installation:
+EFS CSI driver and AWS Load Balancer Controller (run from your laptop after `aws eks update-kubeconfig`)
+=====================================================================================================
+Both controllers get AWS permissions through EKS Pod Identity. Terraform already created the IAM roles
+and the pod identity associations (Terraform/eks/controller_roles.tf) for these service accounts:
+    kube-system/efs-csi-controller-sa         -> Terraform_AmazonEKSPodIdentityEFSCSIRole
+    kube-system/aws-load-balancer-controller  -> Terraform_AmazonEKSPodIdentityLBControllerRole
+So the service account names below must stay exactly as written.
 
+# ---------------- EFS CSI driver ----------------
 helm repo add aws-efs-csi-driver https://kubernetes-sigs.github.io/aws-efs-csi-driver/
 helm repo update
-helm upgrade -i aws-efs-csi-driver aws-efs-csi-driver/aws-efs-csi-driver --namespace kube-system --set controller.serviceAccount.create=true --set controller.serviceAccount.name=efs-csi-controller-sa
+helm upgrade -i aws-efs-csi-driver aws-efs-csi-driver/aws-efs-csi-driver \
+  --namespace kube-system \
+  --set controller.serviceAccount.create=true \
+  --set controller.serviceAccount.name=efs-csi-controller-sa
 
-#LB installation:
-# vpcId must be the VPC created by Terraform:
-#   aws eks describe-cluster --name testing_k8s --region ap-south-1 --query cluster.resourcesVpcConfig.vpcId --output text
-# Shield/WAF are disabled because the node IAM role has no permissions for them (the controller errors otherwise).
+kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-efs-csi-driver
+
+Then put the EFS id into "Kubernetes with ArgoCD/storageclass.yml":
+  cd Terraform && terraform output -raw efs_id
+
+# ---------------- AWS Load Balancer Controller ----------------
+# vpcId must be the VPC created by Terraform; read it instead of hardcoding it:
+VPC_ID=$(aws eks describe-cluster --name testing_k8s --region ap-south-1 --query cluster.resourcesVpcConfig.vpcId --output text)
+#   (or: cd Terraform && terraform output -raw vpc_id)
 
 helm repo add eks https://aws.github.io/eks-charts
 helm repo update
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system --set clusterName=testing_k8s --set region=ap-south-1 --set vpcId=vpc-0b561f03f43175ae8 --set serviceAccount.create=true --set serviceAccount.name=aws-load-balancer-controller --set enableShield=false --set enableWaf=false --set enableWafv2=false
+helm upgrade -i aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system \
+  --set clusterName=testing_k8s \
+  --set region=ap-south-1 \
+  --set vpcId="$VPC_ID" \
+  --set serviceAccount.create=true \
+  --set serviceAccount.name=aws-load-balancer-controller
+
+kubectl get deploy -n kube-system aws-load-balancer-controller     # READY 2/2
+kubectl logs -n kube-system deploy/aws-load-balancer-controller | tail
+
+If the controller logs AccessDenied for shield/waf, add:
+  --set enableShield=false --set enableWaf=false --set enableWafv2=false

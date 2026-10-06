@@ -1,41 +1,64 @@
-To install Docker and docker-compose:
-sudo apt update
-2. sudo apt upgrade
-3. sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
-4. curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-5. echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-6. sudo apt update
-7. sudo apt install -y docker-ce docker-ce-cli containerd.io
-8. sudo systemctl status docker
-9. sudo apt install docker-compose
+Jenkins server setup (Ubuntu 24.04 EC2 created by Terraform, tag Name=Jenkins)
+==============================================================================
+
+FASTEST WAY: copy and run the script in this folder
+    scp -i vishwesh-EC2.pem "install-jenkins-server.sh" ubuntu@<JENKINS_PUBLIC_IP>:~
+    ssh -i vishwesh-EC2.pem ubuntu@<JENKINS_PUBLIC_IP>
+    sudo bash install-jenkins-server.sh
+
+The manual steps below do exactly what the script does.
 
 ------------------------------------------------------------------------------
+1. Docker Engine (official Docker repository)
+------------------------------------------------------------------------------
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg unzip git fontconfig
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world          # verify
 
-To install the AWS CLI:
-1. sudo apt install aws-cli
-	OR
-1. curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-2. sudo apt update
-3. sudo apt install unzip
-4. unzip awscliv2.zip
-5. sudo ./aws/install
+(docker-compose v1 from apt is deprecated; use "docker compose" from the plugin above)
 
----------------------------------------------------------------------------
+------------------------------------------------------------------------------
+2. AWS CLI v2  (the "aws-cli" apt package is v1 and is not recommended)
+------------------------------------------------------------------------------
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+aws --version
+aws sts get-caller-identity               # should show the role Terraform_jenkins_ec2roleforecr
+                                          # (instance profile - no "aws configure" / access keys needed)
 
-To Install the Jenkins:
-1. sudo apt update
-2. sudo apt install -y openjdk-17-jdk
-3. curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee /usr/share/keyrings/jenkins-keyring.asc > /dev/null
-4. echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
-5. sudo apt update 
-6. sudo apt install -y jenkins
-7. sudo systemctl enable --now jenkins
-	sudo systemctl status jenkins
+------------------------------------------------------------------------------
+3. Jenkins LTS (needs Java 21)
+------------------------------------------------------------------------------
+sudo apt-get install -y openjdk-21-jre
+sudo curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key -o /etc/apt/keyrings/jenkins-keyring.asc
+echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y jenkins
+sudo systemctl enable --now jenkins
+sudo systemctl status jenkins
 
-----------------------------------------------------------------------------------
-Retrieve Jenkins Initial Admin Password
+------------------------------------------------------------------------------
+4. Allow the jenkins user to run Docker
+------------------------------------------------------------------------------
+sudo usermod -aG docker jenkins
+sudo systemctl restart jenkins
+sudo -u jenkins docker ps                 # must work without "permission denied"
+
+------------------------------------------------------------------------------
+5. Retrieve the initial admin password
+------------------------------------------------------------------------------
 sudo cat /var/lib/jenkins/secrets/initialAdminPassword
 
-To give full access to Jenkins user for using Docker:
-1. sudo usermod -aG docker jenkins
-2. systemctl restart jenkins
+Open http://<JENKINS_PUBLIC_IP>:8080, paste it, choose "Install suggested plugins",
+create the admin user. Then continue with docs/RUNBOOK.md Phase 3.
+
+Optional (metrics for Prometheus): Manage Jenkins > Plugins > install "Prometheus metrics".
+Metrics are then served at http://<JENKINS_PRIVATE_IP>:8080/prometheus

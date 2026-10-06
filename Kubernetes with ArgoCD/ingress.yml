@@ -10,6 +10,10 @@ metadata:
     alb.ingress.kubernetes.io/backend-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-path: /
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    # HTTPS (only after setting domain_name in Terraform and getting acm_certificate_arn):
+    #   replace listen-ports above with '[{"HTTP": 80}, {"HTTPS": 443}]' and uncomment:
+    # alb.ingress.kubernetes.io/certificate-arn: <terraform output acm_certificate_arn>
+    # alb.ingress.kubernetes.io/ssl-redirect: '443'
 spec:
   ingressClassName: alb
   rules:

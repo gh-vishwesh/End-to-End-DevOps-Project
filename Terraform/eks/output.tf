@@ -7,3 +7,7 @@ output "security_group" {
 output "cluster_security_group" {
   value = aws_eks_cluster.main_eks.vpc_config[0].cluster_security_group_id
 }
+
+output "cluster_name" {
+  value = aws_eks_cluster.main_eks.name
+}

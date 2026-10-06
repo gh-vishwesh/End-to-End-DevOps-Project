@@ -1,4 +1,4 @@
- cat /etc/prometheus/rules/allrules.yml
+# File: /etc/prometheus/rules/allrules.yml   (check with: promtool check rules /etc/prometheus/rules/allrules.yml)
 groups:
 - name: SystemAlerts
   rules:
@@ -21,7 +21,7 @@ groups:
       severity: warning
     annotations:
       summary: "High CPU usage on {{ $labels.instance }}"
-      description: "CPU usage is above 90% for more than 2 minutes."
+      description: "CPU usage is above 80% for more than 1 minute."
 
   # 3. High Memory Usage
   - alert: HighMemoryUsage
@@ -31,7 +31,7 @@ groups:
       severity: warning
     annotations:
       summary: "High Memory usage on {{ $labels.instance }}"
-      description: "Memory usage is above 90% for more than 2 minutes."
+      description: "Memory usage is above 80% for more than 1 minute."
 
   # 4. Disk Usage > 90%
   - alert: DiskFull
@@ -41,7 +41,7 @@ groups:
       severity: critical
     annotations:
       summary: "Disk usage high on {{ $labels.instance }} (mountpoint {{ $labels.mountpoint }})"
-      description: "Disk usage above 90% on {{ $labels.mountpoint }} of instance {{ $labels.instance }}"
+      description: "Disk usage above 80% on {{ $labels.mountpoint }} of instance {{ $labels.instance }}"
 
   # 5. Root Filesystem Almost Full
   - alert: RootDiskFull
@@ -55,7 +55,7 @@ groups:
 
   # 6. Service Down (custom exporter approach — example for sshd)
   - alert: SSHDDown
-    expr: node_systemd_unit_state{name="sshd.service",state="active"} == 0
+    expr: node_systemd_unit_state{name=~"ssh.service|sshd.service",state="active"} == 0   # Ubuntu calls it ssh.service
     for: 2m
     labels:
       severity: critical
@@ -73,6 +73,7 @@ groups:
       description: "One or more Jenkins jobs have failed in the last 5 minutes on instance {{ $labels.instance }}."
 
 
+  # Informational: sends a mail on every successful build. Remove it if that is too noisy.
   - alert: JenkinsJobSucceeded
     expr: increase(jenkins_runs_success_total{job="jenkins_job"}[5m]) > 0
     for: 10s

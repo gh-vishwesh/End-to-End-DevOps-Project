@@ -1,0 +1,22 @@
+# ArgoCD Application that deploys "Kubernetes with ArgoCD/" into namespace k8s-project.
+# Apply once:  kubectl apply -f "Install and Configuration/argocd-application.yaml"
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: myapp
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/gh-vishwesh/End-to-End-DevOps-Project.git
+    targetRevision: main
+    path: Kubernetes with ArgoCD
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: k8s-project
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

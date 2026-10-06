@@ -1,0 +1,60 @@
+# Zero-trust networking for the app namespace. Enforced because Terraform enables the
+# VPC CNI network policy agent (Terraform/eks/eks.tf, enableNetworkPolicy).
+#
+# Apply:   kubectl apply -f Security/kubernetes/network-policies.yml
+# Remove:  kubectl delete -f Security/kubernetes/network-policies.yml
+#
+# Kept outside "Kubernetes with ArgoCD/" on purpose: apply and verify it by hand first.
+# Once you are happy, move it into that folder so ArgoCD manages it too.
+
+# 1) Deny all incoming traffic to every pod in k8s-project by default
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: k8s-project
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# 2) The ALB (target-type ip) sends traffic straight to the app pods from inside the VPC
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-app
+  namespace: k8s-project
+spec:
+  podSelector:
+    matchLabels:
+      app: app-pod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/16   # VPC CIDR (Terraform/vpc/variable.tf)
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# 3) Only the Django app pods may talk to MySQL
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-to-db
+  namespace: k8s-project
+spec:
+  podSelector:
+    matchLabels:
+      app: db-pod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: app-pod
+      ports:
+        - protocol: TCP
+          port: 3306

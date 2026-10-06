@@ -1,28 +1,55 @@
+// CI/CD pipeline for gh-vishwesh/End-to-End-DevOps-Project
+//
+// Flow: clone -> unit tests -> security scans (Trivy) -> docker build -> image scan
+//       -> push to ECR -> bump image tag in the ArgoCD manifest -> push to GitHub -> ArgoCD deploys to EKS
+//
+// Jenkins prerequisites (see docs/RUNBOOK.md, Phase 3):
+//   - Plugins: Pipeline, Git, GitHub, Credentials Binding (all part of "suggested plugins")
+//   - Credential: Secret text with ID GITHUB_TOKEN (GitHub fine-grained PAT, Contents: Read and write on this repo)
+//   - Jenkins EC2 has Docker, git and AWS CLI v2 installed, and the `jenkins` user is in the `docker` group
+//   - Jenkins EC2 instance profile can push to ECR (created by Terraform)
+
 pipeline {
     agent any
+
+    options {
+        disableConcurrentBuilds()                        // two builds pushing manifest commits at once would conflict
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timeout(time: 45, unit: 'MINUTES')
+    }
+
+    triggers {
+        githubPush()                                     // GitHub webhook -> http://<jenkins-ip>:8080/github-webhook/
+    }
+
+    parameters {
+        booleanParam(name: 'RUN_SECURITY_SCANS', defaultValue: true, description: 'Run Trivy secret/IaC/dependency and image scans')
+        booleanParam(name: 'FAIL_ON_CRITICAL', defaultValue: true, description: 'Fail the build if the image has fixable CRITICAL vulnerabilities')
+    }
+
     environment {
-        AWS_REGION = 'ap-south-1'
-        AWS_ACCOUNT_ID = '013453151357'
-        IMAGE_NAME = 'python_web_application'
-        IMAGE_TAG = "build-${BUILD_NUMBER}"
-        ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_NAME}"
-        FULL_IMAGE = "${ECR_REPO}:${IMAGE_TAG}"
+        AWS_REGION    = 'ap-south-1'
+        IMAGE_NAME    = 'python_web_application'     // must match Terraform/ecr/ecr.tf
 
         // App code and Kubernetes manifests live in the same repo
-        GIT_REPO = 'github.com/gh-vishwesh/End-to-End-DevOps-Project.git'
-        GIT_BRANCH = 'main'
-        REPO_DIR = 'End-to-End-DevOps-Project'
-        APP_DIR = 'Jenkins_cicd'
-        MANIFEST = 'Kubernetes with ArgoCD/appdeployment.yml'
+        GIT_REPO      = 'github.com/gh-vishwesh/End-to-End-DevOps-Project.git'
+        TARGET_BRANCH = 'main'                       // not GIT_BRANCH: Jenkins sets that itself for SCM jobs
+        REPO_DIR      = 'src'
+        APP_DIR       = 'Jenkins_cicd'
+        MANIFEST      = 'Kubernetes with ArgoCD/appdeployment.yml'
+
+        TRIVY_IMAGE   = 'aquasec/trivy:0.75.0'
+        REPORT_DIR    = 'reports'
     }
+
     stages {
 
         stage('Clone Repo') {
             steps {
-                withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'github')]) {
+                withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'GH_TOKEN')]) {
                     // Fresh clone every build so stale or dirty checkouts never break the pipeline
                     dir(REPO_DIR) { deleteDir() }
-                    sh 'git clone --branch "$GIT_BRANCH" "https://$github@$GIT_REPO" "$REPO_DIR"'
+                    sh 'git clone --branch "$TARGET_BRANCH" "https://x-access-token:$GH_TOKEN@$GIT_REPO" "$REPO_DIR"'
                 }
                 script {
                     // Jenkins' own manifest commit triggers the webhook again; skip that build to avoid an endless loop
@@ -31,32 +58,94 @@ pipeline {
                     if (env.SKIP_BUILD == 'true') {
                         echo 'Latest commit was made by Jenkins ([skip ci]); skipping build.'
                         currentBuild.result = 'NOT_BUILT'
+                        return
                     }
+
+                    // Resolve the account from the instance role instead of hardcoding it
+                    env.AWS_ACCOUNT_ID = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+                    env.ECR_REGISTRY   = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+                    env.ECR_REPO       = "${env.ECR_REGISTRY}/${env.IMAGE_NAME}"
+
+                    // Tag = build number + short commit, so every image can be traced back to its source
+                    def shortSha = sh(script: "git -C '${REPO_DIR}' rev-parse --short HEAD", returnStdout: true).trim()
+                    env.IMAGE_TAG  = "build-${env.BUILD_NUMBER}-${shortSha}"
+                    env.FULL_IMAGE = "${env.ECR_REPO}:${env.IMAGE_TAG}"
+                    echo "Will build ${env.FULL_IMAGE}"
                 }
             }
         }
 
-        stage('Build Docker image') {
+        stage('Unit Tests') {
             when { expression { env.SKIP_BUILD != 'true' } }
             steps {
                 dir("${REPO_DIR}/${APP_DIR}") {
-                    sh 'docker build -t "$IMAGE_NAME:$IMAGE_TAG" .'
+                    // Run Django tests inside a throwaway Python container (SQLite, no MySQL needed).
+                    // Source is mounted read-only and bytecode is disabled so no root-owned files land in the workspace.
+                    sh '''
+                        docker run --rm -v "$PWD":/app:ro -w /app -e DB_ENGINE=sqlite -e PYTHONDONTWRITEBYTECODE=1 python:3.12-slim \
+                            sh -c "pip install --quiet --no-cache-dir $(grep -i '^django==' requirements.txt) && python manage.py test --noinput"
+                    '''
                 }
             }
         }
 
-        stage('Push Docker Image To ECR') {
+        stage('Security Scan: Repo') {
+            when { expression { env.SKIP_BUILD != 'true' && params.RUN_SECURITY_SCANS } }
+            steps {
+                sh 'mkdir -p "$REPORT_DIR"'
+                // 1) Leaked secrets anywhere in the repo -> fail the build
+                sh '''
+                    docker run --rm -v "$PWD/$REPO_DIR":/src:ro -v trivy-cache:/root/.cache/ "$TRIVY_IMAGE" \
+                        fs --quiet --scanners secret --exit-code 1 /src
+                '''
+                // 2) Terraform / Kubernetes / Dockerfile misconfigurations + dependency CVEs -> report only
+                sh '''
+                    docker run --rm -v "$PWD/$REPO_DIR":/src:ro -v trivy-cache:/root/.cache/ "$TRIVY_IMAGE" \
+                        fs --quiet --scanners vuln,misconfig --severity HIGH,CRITICAL --exit-code 0 \
+                        --format table /src > "$REPORT_DIR/trivy-repo.txt"
+                    tail -n 40 "$REPORT_DIR/trivy-repo.txt"
+                '''
+            }
+        }
+
+        stage('Build Docker Image') {
+            when { expression { env.SKIP_BUILD != 'true' } }
+            steps {
+                dir("${REPO_DIR}/${APP_DIR}") {
+                    sh 'docker build --pull -t "$FULL_IMAGE" .'
+                }
+            }
+        }
+
+        stage('Security Scan: Image') {
+            when { expression { env.SKIP_BUILD != 'true' && params.RUN_SECURITY_SCANS } }
+            steps {
+                script {
+                    def exitCode = params.FAIL_ON_CRITICAL ? '1' : '0'
+                    sh """
+                        mkdir -p "\$REPORT_DIR"
+                        # Full HIGH+CRITICAL report for the record
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/ "\$TRIVY_IMAGE" \
+                            image --quiet --severity HIGH,CRITICAL --format table "\$FULL_IMAGE" > "\$REPORT_DIR/trivy-image.txt"
+                        # Gate: fixable CRITICAL vulnerabilities block the push
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/ "\$TRIVY_IMAGE" \
+                            image --quiet --severity CRITICAL --ignore-unfixed --exit-code ${exitCode} "\$FULL_IMAGE"
+                    """
+                }
+            }
+        }
+
+        stage('Push Image To ECR') {
             when { expression { env.SKIP_BUILD != 'true' } }
             steps {
                 sh '''
-                    aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REPO"
-                    docker tag "$IMAGE_NAME:$IMAGE_TAG" "$FULL_IMAGE"
+                    aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
                     docker push "$FULL_IMAGE"
                 '''
             }
         }
 
-        stage('Update ArgoCD YAML') {
+        stage('Update ArgoCD Manifest') {
             when { expression { env.SKIP_BUILD != 'true' } }
             steps {
                 dir(REPO_DIR) {
@@ -71,20 +160,21 @@ pipeline {
         stage('Commit and Push Manifest') {
             when { expression { env.SKIP_BUILD != 'true' } }
             steps {
-                withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'github')]) {
+                withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'GH_TOKEN')]) {
                     dir(REPO_DIR) {
                         sh '''
-                            git config user.email "jenkins@ci.com"
+                            git config user.email "jenkins-ci@users.noreply.github.com"
                             git config user.name "Jenkins CI"
 
                             git add "$MANIFEST"
                             if git diff --cached --quiet; then
                                 echo "No changes to commit"
                             else
-                                git commit -m "Updated image to $FULL_IMAGE [skip ci]"
+                                # [skip ci] stops this commit from triggering another build (see Clone Repo stage)
+                                git commit -m "Update app image to $IMAGE_TAG [skip ci]"
                                 # Rebase in case someone pushed while this build was running
-                                git pull --rebase "https://$github@$GIT_REPO" "$GIT_BRANCH"
-                                git push "https://$github@$GIT_REPO" "HEAD:$GIT_BRANCH"
+                                git pull --rebase "https://x-access-token:$GH_TOKEN@$GIT_REPO" "$TARGET_BRANCH"
+                                git push "https://x-access-token:$GH_TOKEN@$GIT_REPO" "HEAD:$TARGET_BRANCH"
                             fi
                         '''
                     }
@@ -92,10 +182,18 @@ pipeline {
             }
         }
     }
+
     post {
         always {
-            // Free disk on the Jenkins server; images are already in ECR
-            sh 'docker rmi -f "$IMAGE_NAME:$IMAGE_TAG" "$FULL_IMAGE" || true'
+            archiveArtifacts artifacts: 'reports/*', allowEmptyArchive: true
+            // Free disk on the Jenkins server; the image is already in ECR
+            sh 'if [ -n "$FULL_IMAGE" ]; then docker rmi -f "$FULL_IMAGE" || true; fi'
+        }
+        success {
+            echo "Deployed image: ${env.FULL_IMAGE ?: 'none (build skipped)'}"
+        }
+        failure {
+            echo 'Pipeline failed. Check the stage logs above and the archived reports/ (Trivy).'
         }
     }
 }

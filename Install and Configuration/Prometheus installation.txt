@@ -2,22 +2,21 @@ Download the Prometheus (Link from official page)
 1. wget https://github.com/prometheus/prometheus/releases/download/v3.3.0/prometheus-3.3.0.linux-amd64.tar.gz
 
 2. tar -xvf prometheus*.tar.gz
+   cd prometheus-3.3.0.linux-amd64
 
 3. Create a user with the name Prometheus (No home directory and No login)
-sudo useradd \
-> --system \
-> --no-create-home \
-> --shell /bin/false prometheus
+sudo useradd --system --no-create-home --shell /bin/false prometheus
 
 4. Create a config directory and to store data /data directory:
-->  mkdir -p /data /etc/Prometheus
+->  sudo mkdir -p /data /etc/prometheus/rules
 
 5. Move the Prometheus and promtool directory to /usr/local/bin:
--> mv prometheus promtool /usr/local/bin/
+-> sudo mv prometheus promtool /usr/local/bin/
 
-6.  mv prometheus.yml /etc/prometheus/prometheus.yml
+6.  sudo mv prometheus.yml /etc/prometheus/prometheus.yml
+    (then replace its content with "prometheus yml file.txt" and the rules with "Alert Rules.txt")
 
-7. chown -R prometheus:prometheus /etc/prometheus /data
+7. sudo chown -R prometheus:prometheus /etc/prometheus /data
 
 8.  prometheus --version
  
@@ -38,9 +37,8 @@ Type=simple
 ExecStart=/usr/local/bin/prometheus \
     --config.file=/etc/prometheus/prometheus.yml \
     --storage.tsdb.path=/data \
-    --web.listen-address="0.0.0.0:9090" \
-    --web.console.templates=/etc/prometheus/consoles \
-    --web.console.libraries=/etc/prometheus/console_libraries
+    --web.listen-address=0.0.0.0:9090 \
+    --web.enable-lifecycle
 
 Restart=always
 
@@ -52,7 +50,11 @@ WantedBy=multi-user.target
 - > sudo systemctl daemon-reload
 - > sudo systemctl start prometheus
 - > sudo systemctl enable prometheus
-- > sudo systemctl status Prometheus
+- > sudo systemctl status prometheus
+- > curl -s localhost:9090/-/ready        # "Prometheus Server is Ready."
+
+After editing prometheus.yml or rules later:
+- > promtool check config /etc/prometheus/prometheus.yml && curl -X POST localhost:9090/-/reload
 
 Note:
 Prometheus without node_exporter = app/infra metrics only
@@ -61,17 +63,14 @@ Prometheus + node_exporter = server system metrics too (disk, CPU, memory etc.)
 =======================================================================
 To install the node_exporter:
 
-1. sudo useradd \
-> --system \
-> --no-create-home \
-> --shell /bin/false node_exporter
+1. sudo useradd --system --no-create-home --shell /bin/false node_exporter
 
 
 2.  wget https://github.com/prometheus/node_exporter/releases/download/v1.9.1/node_exporter-1.9.1.linux-amd64.tar.gz
 
 3. tar -xvf node_exporter-1.9.1.linux-amd64.tar.gz
 
-4. mv node_exporter-1.9.1.linux-amd64/node_exporter /usr/local/bin
+4. sudo mv node_exporter-1.9.1.linux-amd64/node_exporter /usr/local/bin
 
 5. sudo vi /etc/systemd/system/node_exporter.service
 
@@ -80,10 +79,11 @@ Description=Node Exporter
 After=network.target
 
 [Service]
-User=prometheus
-Group=prometheus
+User=node_exporter
+Group=node_exporter
 Type=simple
-ExecStart=/usr/local/bin/node_exporter
+ExecStart=/usr/local/bin/node_exporter --collector.systemd
+Restart=always
 
 [Install]
 WantedBy=multi-user.target
@@ -114,6 +114,8 @@ Description=Prometheus Pushgateway
 After=network.target
 
 [Service]
+User=prometheus
+Group=prometheus
 ExecStart=/usr/local/bin/pushgateway
 Restart=always
 
@@ -140,9 +142,11 @@ Prometheus monitors stuff → when it sees a problem (like "Disk usage > 90%"), 
 
 2. tar -xvf alertmanager-0.28.1.linux-amd64.tar.gz
 
-3. mv alertmanager-0.28.1.linux-amd64/alertmanager /usr/local/bin
+3. sudo mv alertmanager-0.28.1.linux-amd64/alertmanager alertmanager-0.28.1.linux-amd64/amtool /usr/local/bin
 
-4. mv alertmanager-0.28.1.linux-amd64/alertmanager.yml /etc/alertmanager/alertmanager.yml
+4. sudo mkdir -p /etc/alertmanager /data/alertmanager
+   sudo mv alertmanager-0.28.1.linux-amd64/alertmanager.yml /etc/alertmanager/alertmanager.yml
+   sudo chown -R prometheus:prometheus /etc/alertmanager /data/alertmanager
 
 5. vi /etc/systemd/system/alertmanager.service:
 
@@ -167,4 +171,7 @@ WantedBy=multi-user.target
 6. sudo systemctl daemon-reload
 sudo systemctl start alertmanager
 sudo systemctl enable alertmanager
+curl -s localhost:9093/-/ready
+
+Email notifications: see "Email Alert.txt". Validate with: amtool check-config /etc/alertmanager/alertmanager.yml
 

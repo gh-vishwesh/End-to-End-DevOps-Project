@@ -1,0 +1,12 @@
+# Shared Trivy settings for scripts/run-security-scans.sh (Jenkins passes equivalent flags directly).
+# Docs: https://trivy.dev/latest/docs/references/configuration/config-file/
+severity:
+  - HIGH
+  - CRITICAL
+scan:
+  skip-dirs:
+    - "**/.terraform"
+    - "**/__pycache__"
+    - "reports"
+vulnerability:
+  ignore-unfixed: true

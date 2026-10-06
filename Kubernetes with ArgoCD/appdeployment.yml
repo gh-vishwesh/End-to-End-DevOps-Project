@@ -17,17 +17,32 @@ spec:
       labels:
         app: app-pod
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: app-pod
-          image: varunsimha/last:latest
+          # Jenkins rewrites the line below on every build with the image it pushed to ECR
+          image: 013453151357.dkr.ecr.ap-south-1.amazonaws.com/python_web_application:initial
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
             limits:
               cpu: "500m"
-              memory: "128Mi"
+              memory: "256Mi"
           ports:
             - containerPort: 8000
-          # Django's dev server keeps the process alive even if startup fails (e.g. DB not up yet),
-          # so check the port: liveness restarts a dead server, readiness keeps it out of the ALB.
+          volumeMounts:
+            - name: tmp            # gunicorn worker heartbeat files; the rest of the filesystem is read-only
+              mountPath: /tmp
+          # Readiness keeps a pod out of the ALB until it serves pages; liveness restarts a hung server.
           readinessProbe:
             httpGet:
               path: /
@@ -65,3 +80,12 @@ spec:
                   name: my-secret
                   key: DB_PASSWORD
 
+            - name: DJANGO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: my-secret
+                  key: DJANGO_SECRET_KEY
+                  optional: true
+      volumes:
+        - name: tmp
+          emptyDir: {}

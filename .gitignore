@@ -1,3 +1,24 @@
-# Terraform files to ignore
+# Terraform
 .terraform/
-.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.tfvars
+!example.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+db.sqlite3
+
+# Security scan output
+reports/
+
+# OS / editor junk
+*:Zone.Identifier
+.DS_Store
+.idea/
+.vscode/

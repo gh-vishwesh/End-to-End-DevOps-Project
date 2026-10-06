@@ -28,8 +28,35 @@ prometheus:
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
+    # Optional: also scrape Jenkins (needs the "Prometheus metrics" plugin on Jenkins).
+    # Jenkins and the EKS nodes share the VPC, so the private IP works.
+    # additionalScrapeConfigs:
+    #   - job_name: jenkins
+    #     metrics_path: /prometheus
+    #     static_configs:
+    #       - targets: ['<JENKINS_PRIVATE_IP>:8080']
 
 alertmanager:
+  # Optional e-mail notifications. Put the Gmail app password in a values file that is NOT committed,
+  # e.g. -f alertmanager-secret-values.yaml, instead of editing it here.
+  # config:
+  #   global:
+  #     smtp_smarthost: 'smtp.gmail.com:587'
+  #     smtp_from: 'you@gmail.com'
+  #     smtp_auth_username: 'you@gmail.com'
+  #     smtp_auth_password: '<16-char app password>'
+  #   route:
+  #     receiver: email
+  #     group_by: ['alertname', 'namespace']
+  #     routes:
+  #       - receiver: 'null'
+  #         matchers: ['alertname = "Watchdog"']
+  #   receivers:
+  #     - name: email
+  #       email_configs:
+  #         - to: 'you@gmail.com'
+  #           send_resolved: true
+  #     - name: 'null'
   alertmanagerSpec:
     resources:
       requests:

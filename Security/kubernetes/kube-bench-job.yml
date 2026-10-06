@@ -1,0 +1,47 @@
+# CIS Amazon EKS Benchmark check with kube-bench (runs once on one worker node).
+#
+#   kubectl apply -f Security/kubernetes/kube-bench-job.yml
+#   kubectl wait --for=condition=complete job/kube-bench -n kube-system --timeout=180s
+#   kubectl logs job/kube-bench -n kube-system > reports/kube-bench.txt
+#   kubectl delete -f Security/kubernetes/kube-bench-job.yml
+#
+# Based on https://github.com/aquasecurity/kube-bench/blob/v0.16.0/job-eks.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kube-bench
+  namespace: kube-system
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      hostPID: true
+      restartPolicy: Never
+      containers:
+        - name: kube-bench
+          image: docker.io/aquasec/kube-bench:v0.16.0
+          command: ["kube-bench", "run", "--targets", "node,policies,managedservices", "--benchmark", "eks-1.5.0"]
+          resources:
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: var-lib-kubelet
+              mountPath: /var/lib/kubelet
+              readOnly: true
+            - name: etc-systemd
+              mountPath: /etc/systemd
+              readOnly: true
+            - name: etc-kubernetes
+              mountPath: /etc/kubernetes
+              readOnly: true
+      volumes:
+        - name: var-lib-kubelet
+          hostPath:
+            path: /var/lib/kubelet
+        - name: etc-systemd
+          hostPath:
+            path: /etc/systemd
+        - name: etc-kubernetes
+          hostPath:
+            path: /etc/kubernetes

@@ -24,10 +24,22 @@ spec:
         image: bitnamilegacy/mysql:8.0.36
         ports:
         - containerPort: 3306
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "512Mi"
+          limits:
+            memory: "1Gi"
         readinessProbe:
           tcpSocket:
             port: 3306
           periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 3306
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          failureThreshold: 3
         env:
           - name: MYSQL_ROOT_PASSWORD
             valueFrom:

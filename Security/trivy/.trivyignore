@@ -1,0 +1,3 @@
+# Accepted findings. One ID per line, with a reason and a review date, e.g.:
+# AVD-AWS-0104   # SG egress 0.0.0.0/0 - nodes/Jenkins must reach the internet (review 2027-01)
+# CVE-2024-12345 # not exploitable: affected function unused (review 2027-01)

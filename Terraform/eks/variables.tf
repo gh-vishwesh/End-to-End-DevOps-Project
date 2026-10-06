@@ -2,20 +2,20 @@ variable "region" {
   default = "ap-south-1"
 }
 variable "eks_name" {
-    default = "testing_k8s"
+  default = "testing_k8s"
 }
 
 variable "sub_ids" {
-  type        = list(string)
+  type = list(string)
 }
 
 variable "vpc_id" {
-  
+
 }
 
 variable "node_name" {
-    default = "test-node-group"
-  
+  default = "test-node-group"
+
 }
 
 variable "sg" {
@@ -32,10 +32,10 @@ variable "node_sg" {
 
 variable "eks_ingress_rule" {
   type = map(object({
-    port         = number
-    protocol     = string
-    cidr_block   = list(string)
-    description  = string
+    port        = number
+    protocol    = string
+    cidr_block  = list(string)
+    description = string
   }))
 }
 
@@ -49,16 +49,18 @@ variable "eks_cluster_policies" {
   ]
 }
 
+# Least privilege for worker nodes. The VPC CNI, EFS CSI driver and AWS Load Balancer Controller
+# get their own permissions through EKS Pod Identity (controller_roles.tf, eks.tf), so nodes no longer
+# need EC2/ELB/ECR full access.
 variable "eks_node_policies" {
   default = [
-    "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
-    "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess",
-    "arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy",
-    "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
     "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
-    "arn:aws:iam::aws:policy/AmazonEKSLoadBalancingPolicy",
-    "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess",
-    "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+    "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
+    "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
+    "arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"
   ]
-  
+}
+
+variable "key_name" {
+  default = "vishwesh-EC2"
 }

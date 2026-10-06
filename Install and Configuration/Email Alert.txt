@@ -1,5 +1,8 @@
 To get the alert over the gmail:
--> Update the /etc/alertmanager/alertmanager.yml
+Prerequisite: Google account with 2-Step Verification ON, then create an App Password at
+https://myaccount.google.com/apppasswords (16 characters). Your normal Gmail password will NOT work.
+
+-> Update the /etc/alertmanager/alertmanager.yml   (do not commit the real app password to git)
 
 global:
   smtp_smarthost: 'smtp.gmail.com:587'
@@ -10,6 +13,9 @@ global:
 
 route:
   group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
   receiver: 'email-alert'
 
 receivers:
@@ -19,5 +25,9 @@ receivers:
     send_resolved: true
 
 -------------------------------------------------------------------------
--> Restart Alertmanager:
-systemctl restart alertmanager
+-> Validate and restart Alertmanager:
+amtool check-config /etc/alertmanager/alertmanager.yml
+sudo systemctl restart alertmanager
+
+-> Test: stop node_exporter on the Jenkins server for ~2 minutes (sudo systemctl stop node_exporter);
+   InstanceDown should fire and an email arrive. Start it again to receive the "resolved" email.

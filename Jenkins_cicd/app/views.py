@@ -1,9 +1,11 @@
-from django.shortcuts import render, redirect
-from .models import *
+from django.shortcuts import render, redirect, get_object_or_404
+from django.views.decorators.http import require_POST
+from .models import register
 # Create your views here.
 def Insertpage(request):
     return render(request,"insert.html")
 
+@require_POST
 def Insertdata(request):
     #Data come from html view
     fname=request.POST['fname']
@@ -13,7 +15,7 @@ def Insertdata(request):
 
     #Creating object of the model Class
     #inserting data into the table
-    newuser=register.objects.create(Firstname=fname,Lastname=lname,Email=mail,Contact=phone)
+    register.objects.create(Firstname=fname,Lastname=lname,Email=mail,Contact=phone)
 
     #After insert render on show.html
     return redirect(Showpage) 
@@ -25,11 +27,12 @@ def Showpage(request):
 
 def Editpage(request,pk):
     #fetching the data of particular ID
-    get_data=register.objects.get(id=pk)
+    get_data=get_object_or_404(register,id=pk)
     return render(request,"edit.html",{'key2':get_data})
 
+@require_POST
 def Update(request,pk):
-    updatedata=register.objects.get(id=pk)
+    updatedata=get_object_or_404(register,id=pk)
     updatedata.Firstname=request.POST['fname']
     updatedata.Lastname=request.POST['lname']
     updatedata.Email=request.POST['mail']
@@ -38,11 +41,9 @@ def Update(request,pk):
     updatedata.save()
     return redirect(Showpage) 
 
+@require_POST
 def Delete(request,pk):
-    deletedata=register.objects.get(id=pk)
+    deletedata=get_object_or_404(register,id=pk)
     #quere for delete
     deletedata.delete()
     return redirect(Showpage) 
-
-
-

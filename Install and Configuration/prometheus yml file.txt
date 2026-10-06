@@ -1,4 +1,6 @@
-cat /etc/prometheus/prometheus.yml
+# File: /etc/prometheus/prometheus.yml  (on the Prometheus/Grafana EC2)
+# Replace <PROMETHEUS_PRIVATE_IP>, <JENKINS_PRIVATE_IP>, <JENKINS_USER>, <JENKINS_API_TOKEN>
+# (terraform output server_private_ips), then: promtool check config /etc/prometheus/prometheus.yml
 # my global config
 global:
   scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
@@ -29,23 +31,30 @@ scrape_configs:
     # scheme defaults to 'http'.
 
     static_configs:
-      - targets: ["20.193.249.68:9090"]
+      - targets: ["localhost:9090"]
        # The label name is added as a label `label_name=<label_value>` to any timeseries scraped from this config.
         labels:
           app: "prometheus"
 
   - job_name: "node_exporter"
     static_configs:
-      - targets: ["20.193.249.68:9100"]
+      - targets: ["localhost:9100", "<JENKINS_PRIVATE_IP>:9100"]
 
   - job_name: 'pushgateway'
     static_configs:
-      - targets: ["20.193.249.68:9091"]
+      - targets: ["localhost:9091"]
 
 
-    - job_name: 'kube-state-metrics'
+  # --- Kubernetes targets (only if this external Prometheus scrapes EKS; the in-cluster
+  # kube-prometheus-stack in kube-prometheus-stack-values.yaml already covers these) ---
+  - job_name: 'kube-state-metrics'
     kubernetes_sd_configs:
       - role: endpoints
+        api_server: '<EKS_API_ENDPOINT>'   # aws eks describe-cluster --name testing_k8s --query cluster.endpoint --output text
+        tls_config:
+          insecure_skip_verify: true
+        authorization:
+          credentials_file: /etc/prometheus/k8s-bearer.token
     relabel_configs:
       - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_namespace]
         action: keep
@@ -54,6 +63,11 @@ scrape_configs:
   - job_name: 'node-exporter'
     kubernetes_sd_configs:
       - role: endpoints
+        api_server: '<EKS_API_ENDPOINT>'   # aws eks describe-cluster --name testing_k8s --query cluster.endpoint --output text
+        tls_config:
+          insecure_skip_verify: true
+        authorization:
+          credentials_file: /etc/prometheus/k8s-bearer.token
     relabel_configs:
       - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_namespace]
         action: keep
@@ -63,9 +77,14 @@ scrape_configs:
     scheme: https
     tls_config:
       insecure_skip_verify: true
-    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    bearer_token_file: /etc/prometheus/k8s-bearer.token
     kubernetes_sd_configs:
       - role: node
+        api_server: '<EKS_API_ENDPOINT>'
+        tls_config:
+          insecure_skip_verify: true
+        authorization:
+          credentials_file: /etc/prometheus/k8s-bearer.token
     relabel_configs:
       - action: labelmap
         regex: __meta_kubernetes_node_label_(.+)
@@ -75,15 +94,21 @@ scrape_configs:
     scheme: https
     tls_config:
       insecure_skip_verify: true
-    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    bearer_token_file: /etc/prometheus/k8s-bearer.token
     kubernetes_sd_configs:
       - role: node
+        api_server: '<EKS_API_ENDPOINT>'
+        tls_config:
+          insecure_skip_verify: true
+        authorization:
+          credentials_file: /etc/prometheus/k8s-bearer.token
     metrics_path: /metrics/cadvisor
 
   - job_name: 'jenkins_job'
     metrics_path: '/prometheus'
     static_configs:
-      - targets: ['20.193.249.68:8080']
+      - targets: ['<JENKINS_PRIVATE_IP>:8080']
+    # Jenkins user + API token (Jenkins > your user > Security > API Token). Never commit real values.
     basic_auth:
-      username: 'varun'
-      password: 'Welcome@12345'
+      username: '<JENKINS_USER>'
+      password: '<JENKINS_API_TOKEN>'

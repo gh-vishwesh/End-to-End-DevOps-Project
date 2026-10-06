@@ -1,5 +1,9 @@
-How to connect the Prometheus to Kubernetes and monitor it:
--------------------------------------------------------
+How to connect an EXTERNAL Prometheus (the "Prometheus and Grafana" EC2) to Kubernetes
+--------------------------------------------------------------------------------------
+NOTE: The recommended way to monitor EKS is the in-cluster kube-prometheus-stack
+(kube-prometheus-stack-values.yaml in this folder, docs/RUNBOOK.md Phase 7). Use this file only
+if you also want the EC2 Prometheus to scrape the cluster. The EC2 must be able to reach the node
+IPs (same VPC) and the EKS API endpoint.
 
 1. # Add Prometheus Helm repo:
 -> helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -68,7 +72,8 @@ scrape_configs:
 
 -------------------------------
 Create a ServiceAccount and ClusterRoleBinding (to allow kubelet access)
-Apply this in your Kubernetes cluster:
+This is already in the repo as "Kubernetes with ArgoCD/prometheus-access.yml" (namespace k8s-project),
+so ArgoCD creates it. The YAML below is for reference only (it uses namespace default).
 
 apiVersion: v1
 kind: ServiceAccount
@@ -102,13 +107,16 @@ subjects:
 
 --------------------------------
 Get Bearer Token and Mount it to Prometheus VM
-Get the token:
-kubectl -n default get secret $(kubectl -n default get sa prometheus-sa -o jsonpath="{.secrets[0].name}") -o jsonpath="{.data.token}" | base64 -d
+Get the token (Kubernetes 1.24+ no longer auto-creates SA token secrets; prometheus-access.yml
+creates the long-lived secret prometheus-sa-token for this):
+kubectl -n k8s-project get secret prometheus-sa-token -o jsonpath="{.data.token}" | base64 -d
 
 --------------------
 Save it to your VM as:
 /etc/prometheus/k8s-bearer.token
 
 ------------------------
-Update your prometheus.yml:
-bearer_token_file: /etc/prometheus/k8s-bearer.token
+sudo chown prometheus:prometheus /etc/prometheus/k8s-bearer.token && sudo chmod 600 /etc/prometheus/k8s-bearer.token
+
+Update your prometheus.yml: the full working version (api_server + credentials_file per job) is in
+"prometheus yml file.txt". Then: promtool check config /etc/prometheus/prometheus.yml && sudo systemctl restart prometheus
