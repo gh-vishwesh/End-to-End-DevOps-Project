@@ -5,7 +5,8 @@ metadata:
 provisioner: efs.csi.aws.com
 parameters:
   provisioningMode: efs-ap
-  fileSystemId: fs-06cf01863fbf69f96
+  # Changes on every fresh terraform apply: use `terraform output -raw efs_id`
+  fileSystemId: fs-083224abdb8fe4c56
   directoryPerms: "0777"
   gidRangeStart: "1000"
   gidRangeEnd: "2000"
