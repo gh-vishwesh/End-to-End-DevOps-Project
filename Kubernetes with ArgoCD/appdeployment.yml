@@ -24,7 +24,7 @@ spec:
       containers:
         - name: app-pod
           # Jenkins rewrites the line below on every build with the image it pushed to ECR
-          image: 013453151357.dkr.ecr.ap-south-1.amazonaws.com/python_web_application:build-1-08656f9
+          image: 013453151357.dkr.ecr.ap-south-1.amazonaws.com/python_web_application:build-4-614f1a4
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
